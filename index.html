@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collaborative Whiteboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            color: #333333;
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            padding: 1rem;
+            text-align: center;
+            background-color: #ffffff;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            flex-grow: 1;
+        }
+
+        .whiteboard-container {
+            background-color: #ffffff;
+            padding: 2rem;
+            height: calc(100vh - 200px);
+        }
+
+        .whiteboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        #textArea {
+            width: 100%;
+            height: calc(100% - 100px);
+            padding: 1rem;
+            border: none;
+            font-size: 1rem;
+            line-height: 1.8;
+            resize: none;
+            background: linear-gradient(to bottom, transparent 0%, transparent 97%, #e0e0e0 98%);
+            background-size: 100% 1.8rem;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #textArea:focus {
+            outline: none;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            background: none;
+            color: #4361ee;
+        }
+
+        .btn:hover {
+            text-decoration: underline;
+        }
+
+        .word-count {
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        #loadingSpinner {
+            display: none;
+            justify-content: center;
+            align-items: center;
+            margin: 1rem 0;
+        }
+
+        .spinner {
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #4361ee;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .status-message {
+            margin-top: 1rem;
+            padding: 0.5rem;
+            display: none;
+            font-size: 0.9rem;
+        }
+
+        .success {
+            color: #4CAF50;
+        }
+
+        .error {
+            color: #f72585;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .whiteboard-container {
+                padding: 1rem;
+                height: calc(100vh - 150px);
+            }
+
+            .whiteboard-header {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>Notes</h1>
+    </header>
+
+    <div class="container">
+        <div class="whiteboard-container">
+            <div class="whiteboard-header">
+                <div class="word-count">Words: <span id="wordCount">0</span></div>
+            </div>
+
+            <textarea id="textArea" 
+                      placeholder="Start writing here..."
+                      spellcheck="true"></textarea>
+
+            <div id="loadingSpinner">
+                <div class="spinner"></div>
+            </div>
+
+            <div class="button-group">
+                <button id="copyButton" class="btn">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+                <button id="saveButton" class="btn">
+                    <i class="fas fa-save"></i> Save
+                </button>
+            </div>
+
+            <div id="status" class="status-message"></div>
+        </div>
+    </div>
+
+    <script>
+        const CONFIG = {
+            BIN_ID: '6731cfbfacd3cb34a8a666fa',
+            API_KEY: '$2a$10$u.OutNwDFhK7NrCyt/9Br.9/6PJA7gZW0lHyP6Ua5zJ8b19jAwhki',
+            BASE_URL: 'https://api.jsonbin.io/v3/b',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Master-Key': '$2a$10$u.OutNwDFhK7NrCyt/9Br.9/6PJA7gZW0lHyP6Ua5zJ8b19jAwhki',
+                'X-Bin-Meta': false
+            }
+        };
+
+        const textArea = document.getElementById('textArea');
+        const copyButton = document.getElementById('copyButton');
+        const saveButton = document.getElementById('saveButton');
+        const status = document.getElementById('status');
+        const wordCountElement = document.getElementById('wordCount');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+
+        function toggleLoading(show) {
+            loadingSpinner.style.display = show ? 'flex' : 'none';
+        }
+
+        function updateWordCount() {
+            const text = textArea.value.trim();
+            const wordCount = text ? text.split(/\s+/).length : 0;
+            wordCountElement.textContent = wordCount;
+        }
+
+        function showStatus(message, isError = false) {
+            status.textContent = message;
+            status.style.display = 'block';
+            status.className = `status-message ${isError ? 'error' : 'success'}`;
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 3000);
+        }
+
+        async function loadText() {
+            try {
+                toggleLoading(true);
+                const response = await fetch(`${CONFIG.BASE_URL}/${CONFIG.BIN_ID}/latest`, {
+                    method: 'GET',
+                    headers: CONFIG.headers
+                });
+
+                if (!response.ok) throw new Error('Failed to load text');
+                const data = await response.json();
+                textArea.value = data.content || '';
+                updateWordCount();
+            } catch (error) {
+                showStatus('Failed to load text: ' + error.message, true);
+            } finally {
+                toggleLoading(false);
+            }
+        }
+
+        async function saveText() {
+            try {
+                toggleLoading(true);
+                const response = await fetch(`${CONFIG.BASE_URL}/${CONFIG.BIN_ID}`, {
+                    method: 'PUT',
+                    headers: CONFIG.headers,
+                    body: JSON.stringify({
+                        content: textArea.value
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Failed to save text');
+                showStatus('Changes saved successfully!');
+            } catch (error) {
+                showStatus('Failed to save: ' + error.message, true);
+            } finally {
+                toggleLoading(false);
+            }
+        }
+
+        copyButton.addEventListener('click', () => {
+            textArea.select();
+            document.execCommand('copy');
+            showStatus('Text copied to clipboard!');
+        });
+
+        saveButton.addEventListener('click', saveText);
+        textArea.addEventListener('input', updateWordCount);
+        loadText();
+    </script>
+</body>
+</html>
